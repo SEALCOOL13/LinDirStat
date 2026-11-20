@@ -33,7 +33,7 @@ Written in Rust with [egui](https://github.com/emilk/egui) (a single native exec
 Clone the repository, then build:
 
 ```bash
-git clone https://github.com/SEALCOOL13/lindirstat.git
+git clone https://github.com/SEALCOOL13/LinDirStat.git
 cd lindirstat
 ./build.sh            # installs prerequisites and Rust (rustup), then builds
 ./build.sh install    # same, plus installs to ~/.local/bin with a menu entry
