@@ -1,0 +1,8 @@
+# Rust build output
+/target/
+# Editor / OS junk
+*.swp
+*~
+.DS_Store
+.idea/
+.vscode/
