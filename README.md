@@ -27,6 +27,26 @@ Written in Rust with [egui](https://github.com/emilk/egui) (a single native exec
   both behind a confirmation dialog.
 * **Compact small files** (Options): merges tiny files into one entry per folder to reduce
   memory on huge trees.
+* **Saved scans**: *File > Save Scan* (Ctrl+S) writes the complete results to a compressed
+  `.ldscan` file; *File > Open Saved Scan* (Ctrl+Shift+O), the drive picker, or
+  `windirstat-linux FILE.ldscan` reopens it in a fraction of a second, without touching the
+  scanned drive. *Options > Auto-save every completed scan* keeps the latest scan of each folder.
+  A 220,000-file tree saves to 3.4 MiB in about 40 ms.
+* **Refresh selected folder** (Shift+F5 or right-click): rescans only one folder and splices it
+  into the results, so a saved scan of a huge drive can be brought up to date where it changed.
+* **Multi-select**: Shift+click for a range, Ctrl+click to add or remove, or drag over rows in
+  the tree. The right-click menu then acts on all of them (copy paths, hide, trash, delete), and
+  the status bar shows the combined size.
+* **Search** (Ctrl+F): find files and folders by name or wildcard (`*.iso`, `IMG_????.jpg`),
+  largest first, optionally only inside the selected folder. Right-click an extension to list
+  all its files.
+* **Treemap zoom**: double-click a tile to zoom into that folder; Backspace zooms out, Esc resets.
+* **Remembers the window**: size, position, maximized state, interface zoom (Ctrl+= / Ctrl+- /
+  Ctrl+0, or *View > Interface Zoom*) and panel sizes are restored on the next start.
+* **Keyboard navigation**: arrow keys, Page Up/Down, Home/End (Shift extends the selection),
+  Enter or Left/Right to collapse/expand, Del to trash, Shift+Del to delete.
+* **More**: recent folders, Show in File Manager, Open Terminal Here, Copy Name, and
+  *File > Export to CSV* (folders, optionally every file).
 
 ## Build and run on Linux Mint / Ubuntu / Debian
 
@@ -59,11 +79,25 @@ a compatible glibc.
 ```bash
 windirstat-linux                 # opens the drive picker
 windirstat-linux /home           # scans a folder immediately
+windirstat-linux scan.ldscan     # opens a saved scan
 windirstat-linux --bench /usr    # headless benchmark: prints timing and totals
 windirstat-linux --help
 ```
 
-Settings are saved in `~/.config/windirstat-linux/settings-native.json`.
+The folder argument also accepts `file://` URIs, a file (its folder is scanned), a device such
+as `/dev/sdb1` (its mount point is scanned), and a path with spaces that a file manager split
+into several arguments.
+
+Settings are saved in `~/.config/windirstat-linux/settings-native.json`, saved scans in
+`~/.local/share/windirstat-linux/scans/`.
+
+### File manager integration (Nemo)
+
+Copy `extras/lindirstat.nemo_action` (right-click the background of a folder) and/or
+`extras/lindirstat-folder.nemo_action` (right-click a folder) to `~/.local/share/nemo/actions/`,
+and change `windirstat-linux` in `Exec=` to the full path of the binary if it is not on your
+`PATH`. Use `%P` (the current folder), not `%D` (the device, such as `/dev/sda1`), and do not put
+quotes around it when the action also has `Quote=double`.
 
 ## Project layout
 
@@ -75,8 +109,10 @@ Settings are saved in `~/.config/windirstat-linux/settings-native.json`.
 | `src/ui.rs` | All egui drawing: menu, tree, treemap, side panel, dialogs |
 | `src/theme.rs` | Theme definitions and classic palette |
 | `src/units.rs` | Size and time formatting, Base 2 / Base 10 |
-| `src/util.rs` | Mount list, free space, opening files |
+| `src/savefile.rs` | Saving and loading scans (`.ldscan`) |
+| `src/util.rs` | Mount list, free space, command-line targets, desktop integration |
 | `src/main.rs` | Command-line handling and window setup |
+| `extras/` | Nemo actions |
 | `python-prototypes/` | Earlier Python versions, kept for reference |
 
 ## Status and known limits

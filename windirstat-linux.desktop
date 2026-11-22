@@ -2,7 +2,7 @@
 Type=Application
 Name=WinDirStat for Linux
 Comment=Disk usage analyzer with treemap
-Exec=windirstat-linux
+Exec=windirstat-linux %f
 Icon=drive-harddisk
 Terminal=false
 Categories=System;Utility;Filesystem;

@@ -1,0 +1,11 @@
+[Nemo Action]
+Name=Open LinDirStat Here
+Comment=Analyze disk usage of the current folder with LinDirStat
+# %P is the folder you are viewing. Do not wrap it in quotes: Quote=double below already
+# quotes it, and quoting twice splits paths that contain spaces.
+# (%D is the *device* of the folder, such as /dev/sda1, not the folder itself.)
+Exec=windirstat-linux %P
+Icon-Name=view-list-tree
+Selection=None
+Extensions=any;
+Quote=double

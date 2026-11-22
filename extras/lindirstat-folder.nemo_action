@@ -1,0 +1,9 @@
+[Nemo Action]
+Name=Analyze with LinDirStat
+Comment=Analyze disk usage of the selected folder with LinDirStat
+# Right-click a folder. %F is the selected folder's path.
+Exec=windirstat-linux %F
+Icon-Name=view-list-tree
+Selection=S
+Extensions=dir;
+Quote=double

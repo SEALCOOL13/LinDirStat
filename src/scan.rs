@@ -133,8 +133,11 @@ pub struct Dir {
 
 impl Dir {
     fn placeholder() -> Dir {
+        Dir::empty(NO_PARENT)
+    }
+    pub fn empty(parent: u32) -> Dir {
         Dir {
-            parent: NO_PARENT,
+            parent,
             name_len: 0,
             alive: false,
             dom_ext: 0,
@@ -179,9 +182,10 @@ impl Tree {
     }
     pub fn is_deleted(&self, n: NodeId) -> bool {
         if n.is_dir() {
-            !self.dirs[n.0 as usize].alive
+            self.dirs.get(n.0 as usize).is_none_or(|d| !d.alive)
         } else if n.is_file() {
-            self.file(n).ext == EXT_DEL
+            let Some(d) = self.dirs.get(n.dir_id() as usize) else { return true };
+            !d.alive || d.files.get(n.file_idx() as usize).is_none_or(|f| f.ext == EXT_DEL)
         } else {
             false
         }
@@ -296,6 +300,103 @@ impl Tree {
         }
         (size, files, ext_dec)
     }
+
+    /// Replace folder `d` (not the root) with a fresh scan of it. The old subtree is marked
+    /// deleted and the new one is appended with new ids. Updates `ext_stats` and returns the
+    /// new id of the folder.
+    pub fn graft(&mut self, d: u32, sub: ScanResult, ext_stats: &mut Vec<[u64; 2]>) -> u32 {
+        let parent = self.dirs[d as usize].parent;
+        debug_assert!(parent != NO_PARENT);
+        let (_, _, dec) = self.remove(NodeId::dir(d));
+        for (e, sz) in dec {
+            if let Some(s) = ext_stats.get_mut(e as usize) {
+                s[0] = s[0].saturating_sub(sz);
+                s[1] = s[1].saturating_sub(1);
+            }
+        }
+        // map the sub-scan's extension ids onto ours
+        let mut by_name: FxHashMap<&str, u16> = FxHashMap::default();
+        for (i, n) in self.ext_names.iter().enumerate() {
+            by_name.insert(n.as_str(), i as u16);
+        }
+        let mut new_names: Vec<String> = Vec::new();
+        let mut map: Vec<u16> = Vec::with_capacity(sub.tree.ext_names.len());
+        for (i, n) in sub.tree.ext_names.iter().enumerate() {
+            let id = if i == 0 {
+                EXT_NONE
+            } else if let Some(&id) = by_name.get(n.as_str()) {
+                id
+            } else if self.ext_names.len() + new_names.len() < MAX_EXT {
+                new_names.push(n.clone());
+                (self.ext_names.len() + new_names.len() - 1) as u16
+            } else {
+                EXT_NONE
+            };
+            map.push(id);
+        }
+        drop(by_name);
+        self.ext_names.extend(new_names);
+        let remap = |e: u16| if e == EXT_AGG || e == EXT_DEL { e } else { map.get(e as usize).copied().unwrap_or(EXT_NONE) };
+        if ext_stats.len() < self.ext_names.len() {
+            ext_stats.resize(self.ext_names.len(), [0, 0]);
+        }
+        for (i, s) in sub.ext_stats.iter().enumerate() {
+            let e = remap(i as u16) as usize;
+            if let Some(t) = ext_stats.get_mut(e) {
+                t[0] += s[0];
+                t[1] += s[1];
+            }
+        }
+
+        let off = self.dirs.len() as u32;
+        let mut sub_dirs = sub.tree.dirs;
+        // the sub-scan root carries its full path as name: keep only the last component
+        {
+            let r = &mut sub_dirs[0];
+            let full = r.names[..r.name_len as usize].to_vec();
+            let start = full.iter().rposition(|&b| b == b'/').map(|p| p + 1).unwrap_or(0);
+            let base = &full[start..];
+            let shift = full.len() - base.len();
+            let mut names = Vec::with_capacity(r.names.len() - shift);
+            names.extend_from_slice(base);
+            names.extend_from_slice(&r.names[full.len()..]);
+            r.names = names;
+            r.name_len = base.len() as u16;
+            for f in r.files.iter_mut() {
+                f.name_off -= shift as u32;
+            }
+        }
+        for (k, mut dir) in sub_dirs.into_iter().enumerate() {
+            dir.parent = if k == 0 { parent } else if dir.parent == NO_PARENT { NO_PARENT } else { dir.parent + off };
+            for s in dir.subdirs.iter_mut() {
+                *s += off;
+            }
+            for f in dir.files.iter_mut() {
+                f.ext = remap(f.ext);
+            }
+            dir.dom_ext = remap(dir.dom_ext);
+            self.dirs.push(dir);
+        }
+        // add the new subtree's totals to every ancestor and keep children sorted by size
+        let (s, f, nd, m) = {
+            let r = &self.dirs[off as usize];
+            (r.size, r.nfiles, r.ndirs + 1, r.mtime)
+        };
+        self.dirs[parent as usize].subdirs.push(off);
+        let mut a = parent;
+        while a != NO_PARENT {
+            let dd = &mut self.dirs[a as usize];
+            dd.size += s;
+            dd.nfiles += f;
+            dd.ndirs += nd;
+            dd.mtime = dd.mtime.max(m);
+            let mut subs = std::mem::take(&mut self.dirs[a as usize].subdirs);
+            subs.sort_by_key(|&c| Reverse(self.dirs[c as usize].size));
+            self.dirs[a as usize].subdirs = subs;
+            a = self.dirs[a as usize].parent;
+        }
+        off
+    }
 }
 
 // ------------------------------------------------------------------------------------------
@@ -333,6 +434,15 @@ pub struct ScanResult {
     pub errors: u64,
     pub cancelled: bool,
     pub threads: usize,
+    /// Options used, with `path` set to the canonical scanned root.
+    pub opts: ScanOpts,
+    /// Unix time the scan started.
+    pub scanned_at: i64,
+    pub scan_seconds: f64,
+}
+
+pub fn now_unix() -> i64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0)
 }
 
 struct Task {
@@ -923,7 +1033,9 @@ pub fn auto_threads(root_dev: u64) -> usize {
 }
 
 // ---- driver -------------------------------------------------------------------------------------
-pub fn run_scan(opts: ScanOpts, prog: Arc<Progress>) -> Option<ScanResult> {
+pub fn run_scan(mut opts: ScanOpts, prog: Arc<Progress>) -> Option<ScanResult> {
+    let t0 = std::time::Instant::now();
+    let scanned_at = now_unix();
     let root = std::fs::canonicalize(&opts.path).ok()?;
     let root_s = root.to_string_lossy().into_owned();
     let root_c = std::ffi::CString::new(root_s.clone()).ok()?;
@@ -1019,6 +1131,7 @@ pub fn run_scan(opts: ScanOpts, prog: Arc<Progress>) -> Option<ScanResult> {
     let ext_names: Vec<String> =
         ext_table().lock().unwrap().names.iter().map(|n| String::from_utf8_lossy(n).into_owned()).collect();
     ext_stats.resize(ext_names.len().max(ext_stats.len()), [0, 0]);
+    opts.path = root_s;
     Some(ScanResult {
         tree: Tree { dirs, ext_names },
         ext_stats,
@@ -1026,6 +1139,9 @@ pub fn run_scan(opts: ScanOpts, prog: Arc<Progress>) -> Option<ScanResult> {
         errors: prog.errors.load(Relaxed),
         cancelled,
         threads,
+        opts,
+        scanned_at,
+        scan_seconds: t0.elapsed().as_secs_f64(),
     })
 }
 

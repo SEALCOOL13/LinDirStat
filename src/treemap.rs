@@ -98,14 +98,14 @@ struct Ctx<'a> {
     lay: Layout,
 }
 
-pub fn compute(tree: &Tree, hidden: &FxHashSet<NodeId>, cut: &FxHashMap<u32, u64>, w: usize, h: usize) -> Layout {
+pub fn compute(tree: &Tree, hidden: &FxHashSet<NodeId>, cut: &FxHashMap<u32, u64>, root: u32, w: usize, h: usize) -> Layout {
     let mut c = Ctx {
         tree,
         hidden,
         cut,
         lay: Layout { w, h, leaves: Vec::new(), dirs: Vec::new(), rects: FxHashMap::default(), ids: vec![0; w * h] },
     };
-    c.dir(0, 0.0, 0.0, w as f64, h as f64);
+    c.dir(root, 0.0, 0.0, w as f64, h as f64);
     c.lay
 }
 
